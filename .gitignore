@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+venv/
+
+# local data
+data/
+run/
+runs/
+
+# vscode
+.vscode/
+.dist/
+
+# other
+test.jpg
+test.png
