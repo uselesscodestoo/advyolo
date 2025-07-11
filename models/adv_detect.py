@@ -4,8 +4,10 @@ from ultralytics.utils import LOGGER
 from ultralytics.nn.modules import CBAM
 import torch
 import torch.nn as nn
-from utils.loss import ComputeAttentionLoss, ComputeDomainLoss
+from utils.loss import ComputeAttentionLoss, ComputeDomainLoss, ComputeBatchConsistentLoss
 from models.advcommon import DiscriminatorConv
+import random
+from tqdm import tqdm
 
 DEFAULT_HYP = {
     'lr0': 0.01, 
@@ -38,6 +40,8 @@ DEFAULT_HYP = {
 }
 
 class ADVDetectModel(DetectionModel):
+    MAX_ADV_TRAIN_EPOCH = 100
+
     def __init__(self, cfg="yolo11n.yaml", ch=3, nc=None, verbose=True, hyp=DEFAULT_HYP):
         self.adv_layers = []
         super(ADVDetectModel, self).__init__(cfg, ch, nc, verbose)
@@ -49,12 +53,15 @@ class ADVDetectModel(DetectionModel):
         self.cache = [None for _ in self.adv_layers]
         self.domloss = ComputeDomainLoss(self)
         self.attloss = ComputeAttentionLoss(self)
+        self.batchloss = ComputeBatchConsistentLoss()
 
         offset = len(self.yaml['backbone'])
         head_channel = lambda i: self.yaml['head'][i - offset][3][0]
         self.discriminators = nn.ModuleList([DiscriminatorConv(head_channel(i)//2) for i in self.adv_layers])
         self.cbams = nn.ModuleList([CBAM(head_channel(i)//2) for i in self.adv_layers])
         self.skip_gan_train = 0
+        self.is_adv_train = True
+        self.epches = 0
 
     
     def _predict_once(self, x, profile=False, visualize=False, embed=None):
@@ -90,12 +97,16 @@ class ADVDetectModel(DetectionModel):
                     return torch.unbind(torch.cat(embeddings, 1), dim=0)
         return x
 
-    def _adv_arameters(self):
+    def _adv_prameters(self):
         params = []
         for i in range(len(self.adv_layers)):
             params += list(self.cbams[i].parameters())
             params += list(self.discriminators[i].parameters())
         return params
+    
+    def freeze_adv_prameters(self, freeze=True):
+        for param in self._adv_prameters():
+            param.requires_grad = not freeze
 
     
     def fake_predict(self, x):
@@ -111,47 +122,48 @@ class ADVDetectModel(DetectionModel):
         return x, mids
     
     def loss(self, batch, preds=None):
-        """
-        Compute loss.
-
-        Args:
-            batch (dict): Batch to compute loss on.
-            preds (torch.Tensor | List[torch.Tensor], optional): Predictions.
-        """
         if getattr(self, "criterion", None) is None:
             self.criterion = self.init_criterion()
 
         preds = self.forward(batch["img"]) if preds is None else preds
         troditional_loss, item_loss = self.criterion(preds, batch)
         
-        if not self.training or not self.model.training:
+        if not self.training or not self.model.training or not self.is_adv_train:
             return troditional_loss, item_loss
 
         fake_pred, fake_mids = self.fake_predict(batch["advimg"])
         
-        opt = torch.optim.Adam(self._adv_arameters(), lr=0.001)
-        pre_loss = float("inf")
-        cache_detach = [t.detach() for t in self.cache]
-        mid_detach = [t.detach() for t in fake_mids]
-        # maximize domain loss
+        
+        # maximize cross domain loss and minimize consistent domain loss
         if self.skip_gan_train == 0:
-            for _ in range(5):
+            opt = torch.optim.Adam(self._adv_prameters(), lr=0.001)
+            pre_dloss = float("inf")
+            cache_detach = [t.detach() for t in self.cache]
+            mid_detach = [t.detach() for t in fake_mids]
+            self.freeze_adv_prameters(False)
+            for _ in range(3):
                 opt.zero_grad()
-                loss = torch.zeros(1, device=batch["img"].device)
+                dloss = torch.zeros(1, device=batch["img"].device)
+                bloss = torch.zeros(1, device=batch["img"].device)
                 for i in range(len(self.adv_layers)):
                     attn_s = self.cbams[i](cache_detach[i])
                     attn_t = self.cbams[i](mid_detach[i])
                     dis_s = self.discriminators[i](attn_s)
                     dis_t = self.discriminators[i](attn_t)
-                    loss += - (dis_s - dis_t).mean()
-                loss.backward()
+                    dloss += - self.domloss(dis_s, dis_t)[0]
+                    bloss += self.batchloss(dis_t)
+                
+                if dloss.item() < -len(self.adv_layers):
+                    self.skip_gan_train = 50
+                    bloss.backward() # distroy the graph
+                    break
+                dloss.backward(retain_graph=True)
+                bloss.backward(retain_graph=False)
                 opt.step()
-                if loss.item() < -len(self.adv_layers):
-                    self.skip_gan_train = 5
+                if abs(1 - dloss.item() / pre_dloss) < 0.001:
                     break
-                elif abs(1 - loss.item() / pre_loss) < 0.01:
-                    break
-                pre_loss = loss.item()
+                pre_dloss = dloss.item()
+            self.freeze_adv_prameters(True)
         else:
             self.skip_gan_train -= 1
 
@@ -174,5 +186,42 @@ class ADVDetectModel(DetectionModel):
         
         loss = troditional_loss.sum() * 16 + domain_losses + attn_losses
         return loss, item_loss
+
+    def on_new_epoch(self):
+        self.skip_gan_train = 0
+        self.epches += 1
+        if self.epches > ADVDetectModel.MAX_ADV_TRAIN_EPOCH:
+            self.is_adv_train = False
+            for param in self.parameters():
+                param.requires_grad = False
+            
+            detect_layer = self.model[-1]
+            for param in detect_layer.parameters():
+                param.requires_grad = True
+    
+    def pre_train(self, data, batch_size, epoche=200,device="cuda"):
+        print("Pre train the relation network")
+        for param in self.parameters():
+            param.requires_grad = False
+        self.freeze_adv_prameters(False)
+        def get_batch():
+            return torch.cat([random.choice(data) for _ in range(batch_size)], dim=0)
+        opt = torch.optim.Adam(self._adv_prameters(), lr=0.001)
+        for epoch in tqdm(range(epoche)):
+            opt.zero_grad()
+            batch = get_batch().to(device)
+            _, mid = self.fake_predict(batch)
+            bloss = torch.zeros(1, device=batch.device)
+            for i in range(len(self.adv_layers)):
+                attn_t = self.cbams[i](mid[i])
+                dis_t = self.discriminators[i](attn_t)
+                bloss += self.batchloss(dis_t)
+            bloss.backward()
+            opt.step()
+            
+
+        for param in self.parameters():
+            param.requires_grad = True
+
 
         

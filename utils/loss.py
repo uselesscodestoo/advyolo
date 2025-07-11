@@ -193,3 +193,24 @@ class DiceLoss(nn.Module):
         dice = (2.*intersection + smooth)/(inputs.sum() + targets.sum() + smooth)  
         
         return 1 - dice
+
+
+class ComputeBatchConsistentLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def __call__(self, x):
+        if len(x) <= 1:
+            return torch.tensor(0.0, device=x[0].device) if x else 0
+
+        all_features = torch.stack([torch.mean(feats, dim=0) for feats in x])
+        batch_centers = all_features.unsqueeze(1)
+        pairwise_diffs = batch_centers - all_features.unsqueeze(0)  # [num_batches, num_batches, feature_dim]
+        pairwise_distances = torch.sum(pairwise_diffs ** 2, dim=-1)  # [num_batches, num_batches]
+        
+        # 只取上三角部分（不包括对角线）的距离
+        mask = torch.triu(torch.ones_like(pairwise_distances, dtype=torch.bool), diagonal=1)
+        valid_distances = pairwise_distances[mask]
+        
+        # 计算平均损失
+        return torch.mean(valid_distances) if valid_distances.numel() > 0 else torch.tensor(0.0, device=all_features.device)

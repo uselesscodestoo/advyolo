@@ -12,8 +12,9 @@ from models.adv_detect import ADVDetectModel
 class ADVTrainer(DetectionTrainer):
     def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
         super().__init__(cfg, overrides, _callbacks)
-        self.args
-    
+        self.add_callback("on_train_epoch_start", lambda this: this.model.on_new_epoch())
+        self.add_callback("on_train_start", lambda this: this.model.pre_train(this.train_loader.adv_dataset, this.batch_size, device = this.device))
+        
     def get_model(self, cfg: Optional[str] = None, weights: Optional[str] = None, verbose: bool = True):
         model = ADVDetectModel(cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
         if weights:
