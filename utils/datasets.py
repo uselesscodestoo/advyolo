@@ -1,11 +1,13 @@
+import torch.utils
+import torch.utils.data
 import torchvision
-from torch.utils.data import distributed
-from ultralytics.data.build import InfiniteDataLoader, seed_worker
 from ultralytics.data import YOLODataset
-from ultralytics.data.utils import PIN_MEMORY
 from ultralytics.utils import RANK, colorstr
 import os
+import torch
+import random
 import cv2
+from PIL import Image
 from typing import Dict, Optional
 
 IMG_EXTENSIONS = (".jpg", ".jpeg", ".png", ".ppm", ".bmp", ".pgm", ".tif", ".tiff", ".webp")
@@ -48,7 +50,10 @@ class ADVYOLODataset(YOLODataset):
         ])
     
     def build_imgs(self, dir):
-        return [os.path.join(dir, x) for x in os.listdir(dir) if x.endswith(IMG_EXTENSIONS)]
+        imgs = [os.path.join(dir, x) for x in os.listdir(dir) if x.endswith(IMG_EXTENSIONS)]
+        if len(imgs) == 0:
+            raise ValueError(f"No image files found in {dir}")
+        return imgs
 
     def get_adv_dateset(self):
         return AdvDataset(self.data['adv'], transform=self.adv_transform)
@@ -72,3 +77,79 @@ def build_adv_dataset(cfg, img_path, batch, data, mode="train", rect=False, stri
         data=data,
         fraction=cfg.fraction if mode == "train" else 1.0,
     )
+
+class FolderDataset(torch.utils.data.Dataset):
+    def __init__(self, folder_path, transform=None):
+        self.folder_path = folder_path
+        self.transform = transform
+        self.image_files = [f for f in os.listdir(folder_path) 
+                           if os.path.isfile(os.path.join(folder_path, f)) 
+                           and f.lower().endswith(IMG_EXTENSIONS)]
+        if len(self.image_files) == 0:
+            raise ValueError(f"No image files found in {folder_path}")
+        
+    def __len__(self):
+        return len(self.image_files)
+    
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.folder_path, self.image_files[idx])
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+        return image
+
+class MultiFolderDataLoader:
+    def __init__(self, folders, batch_size, iterations, transform=None):
+        self.folders = folders
+        self.batch_size = batch_size
+        self.iterations = iterations
+        self.current_iter = 0
+        
+        # 为每个文件夹创建单独的数据集和索引列表
+        self.datasets = []
+        self.indices_list = []
+        self.current_indices = []
+        
+        for folder in folders:
+            dataset = FolderDataset(folder, transform=transform)
+            self.datasets.append(dataset)
+            self.indices_list.append(list(range(len(dataset))))
+            self.current_indices.append(0)
+    
+    def __iter__(self):
+        self.current_iter = 0
+        return self
+    
+    def __next__(self):
+        if self.current_iter >= self.iterations:
+            raise StopIteration
+        
+        # 为每个文件夹收集batch_size张图片
+        batch_tensors = []
+        for i, dataset in enumerate(self.datasets):
+            folder_batch = []
+            indices = self.indices_list[i]
+            
+            for _ in range(self.batch_size):
+                # 如果当前索引超出范围，则重置并打乱
+                if self.current_indices[i] >= len(indices):
+                    self.current_indices[i] = 0
+                    random.shuffle(indices)
+                
+                # 获取图片索引并递增
+                img_idx = indices[self.current_indices[i]]
+                self.current_indices[i] += 1
+                
+                # 获取并添加图片到批次
+                img_tensor = dataset[img_idx]
+                folder_batch.append(img_tensor)
+            
+            # 将批次转换为张量并添加到结果列表
+            batch_tensor = torch.stack(folder_batch)
+            batch_tensors.append(batch_tensor)
+        
+        self.current_iter += 1
+        return batch_tensors
+    
+    def __len__(self):
+        return self.iterations
