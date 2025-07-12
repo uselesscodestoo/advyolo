@@ -11,7 +11,7 @@ def parse_args():
     parser.add_argument('--model', type=str, default='./save/best.pt', help='Path to model config or weight file')
     parser.add_argument('--data', type=str, default='./data/NW2DI.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='./data/hyp.yaml', help='hyperparameters path')
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch', type=int, default=8, help='total batch size for all GPUs')
     parser.add_argument('--imgsz', type=int, default=640, help='image sizes')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
@@ -34,7 +34,8 @@ def parse_args():
     parser.add_argument('--upload_dataset', action='store_true', help='Upload dataset as W&B artifact table')
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--delta', type=float, default=5.0, help='Smoothness of the domain adaptation change')
-    parser.add_argument('--max_adv_epoches', type=int, default=100, help='max adv train epoches to train')
+    parser.add_argument('--max_adv_epochs', type=int, default=50, help='max adv train epoches to train')
+    parser.add_argument('--pre_train_epochs', type=int, default=100, help='pre train epoches for relation net')
     args = parser.parse_args()
     if os.path.exists(args.hyp):
         hyp = yaml.load(open(args.hyp), Loader=yaml.FullLoader)
@@ -45,7 +46,8 @@ def parse_args():
         args.hyp = hyp
     
     from models.adv_detect import ADVDetectModel
-    ADVDetectModel.MAX_ADV_TRAIN_EPOCH = args.max_adv_epoches
+    ADVDetectModel.MAX_ADV_TRAIN_EPOCHS = args.max_adv_epochs
+    ADVDetectModel.PRE_TRAIN_EPOCHS = args.pre_train_epochs
     return args
 
 def hyp_filter(hyp:dict):

@@ -1,6 +1,3 @@
-import torch
-import torch.utils
-import torch.utils.data
 import torchvision
 from torch.utils.data import distributed
 from ultralytics.data.build import InfiniteDataLoader, seed_worker
@@ -8,9 +5,7 @@ from ultralytics.data import YOLODataset
 from ultralytics.data.utils import PIN_MEMORY
 from ultralytics.utils import RANK, colorstr
 import os
-import random
 import cv2
-import numpy as np
 from typing import Dict, Optional
 
 IMG_EXTENSIONS = (".jpg", ".jpeg", ".png", ".ppm", ".bmp", ".pgm", ".tif", ".tiff", ".webp")

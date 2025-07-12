@@ -40,9 +40,14 @@ DEFAULT_HYP = {
 }
 
 class ADVDetectModel(DetectionModel):
-    MAX_ADV_TRAIN_EPOCH = 100
+    MAX_ADV_TRAIN_EPOCHS = 100
+    PRE_TRAIN_EPOCHS = 100
+
 
     def __init__(self, cfg="yolo11n.yaml", ch=3, nc=None, verbose=True, hyp=DEFAULT_HYP):
+        self.skip_gan_train = 0
+        self.is_adv_train = True
+        self.epochs = 0
         self.adv_layers = []
         super(ADVDetectModel, self).__init__(cfg, ch, nc, verbose)
         self.hyp = hyp
@@ -59,9 +64,6 @@ class ADVDetectModel(DetectionModel):
         head_channel = lambda i: self.yaml['head'][i - offset][3][0]
         self.discriminators = nn.ModuleList([DiscriminatorConv(head_channel(i)//2) for i in self.adv_layers])
         self.cbams = nn.ModuleList([CBAM(head_channel(i)//2) for i in self.adv_layers])
-        self.skip_gan_train = 0
-        self.is_adv_train = True
-        self.epches = 0
 
     
     def _predict_once(self, x, profile=False, visualize=False, embed=None):
@@ -71,6 +73,8 @@ class ADVDetectModel(DetectionModel):
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+            if self.epochs < ADVDetectModel.MAX_ADV_TRAIN_EPOCHS and m.i == len(self.model) - 1:
+                x = [xx.detach() for xx in x]
             if profile:
                 self._profile_one_layer(m, x, dt)
             x = m(x)  # run
@@ -171,13 +175,13 @@ class ADVDetectModel(DetectionModel):
             attn_loss, attn_loss_items = self.attloss(attn_s, batch)
             attn_losses += attn_loss
         
-        loss = troditional_loss.sum() * 16 + domain_losses + attn_losses
+        loss = troditional_loss.sum() + domain_losses + attn_losses
         return loss, item_loss
 
     def on_new_epoch(self):
         self.skip_gan_train = 0
-        self.epches += 1
-        if self.epches > ADVDetectModel.MAX_ADV_TRAIN_EPOCH:
+        self.epochs += 1
+        if self.epochs > ADVDetectModel.MAX_ADV_TRAIN_EPOCHS:
             self.is_adv_train = False
             for param in self.parameters():
                 param.requires_grad = False
@@ -186,7 +190,7 @@ class ADVDetectModel(DetectionModel):
             for param in detect_layer.parameters():
                 param.requires_grad = True
     
-    def pre_train(self, data, batch_size, epoche=10,device="cuda"):
+    def pre_train(self, data, batch_size, device="cuda"):
         print("Pre train the relation network")
         for param in self.parameters():
             param.requires_grad = False
@@ -194,7 +198,7 @@ class ADVDetectModel(DetectionModel):
         def get_batch():
             return torch.stack([random.choice(data) for _ in range(batch_size)], dim=0)
         opt = torch.optim.Adam(self._adv_prameters(), lr=0.001)
-        for epoch in tqdm(range(epoche)):
+        for epoch in tqdm(range(ADVDetectModel.PRE_TRAIN_EPOCHS)):
             opt.zero_grad()
             batch = get_batch().to(device)
             _, mid = self.fake_predict(batch)
