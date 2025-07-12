@@ -228,6 +228,8 @@ class ADVDetectModel(DetectionModel):
 
         for param in self.parameters():
             param.requires_grad = True
+        self.freeze_adv_prameters(True)
+
 
 
         
