@@ -65,18 +65,6 @@ class ADVDetectModel(DetectionModel):
 
     
     def _predict_once(self, x, profile=False, visualize=False, embed=None):
-        """
-        Perform a forward pass through the network.
-
-        Args:
-            x (torch.Tensor): The input tensor to the model.
-            profile (bool): Print the computation time of each layer if True.
-            visualize (bool): Save the feature maps of the model if True.
-            embed (list, optional): A list of feature vectors/embeddings to return.
-
-        Returns:
-            (torch.Tensor): The last output of the model.
-        """
         y, dt, embeddings = [], [], []  # outputs
         embed = frozenset(embed) if embed is not None else {-1}
         max_idx = max(embed)
@@ -132,7 +120,6 @@ class ADVDetectModel(DetectionModel):
             return troditional_loss, item_loss
 
         fake_pred, fake_mids = self.fake_predict(batch["advimg"])
-        
         
         # maximize cross domain loss and minimize consistent domain loss
         if self.skip_gan_train == 0:
@@ -199,13 +186,13 @@ class ADVDetectModel(DetectionModel):
             for param in detect_layer.parameters():
                 param.requires_grad = True
     
-    def pre_train(self, data, batch_size, epoche=200,device="cuda"):
+    def pre_train(self, data, batch_size, epoche=10,device="cuda"):
         print("Pre train the relation network")
         for param in self.parameters():
             param.requires_grad = False
         self.freeze_adv_prameters(False)
         def get_batch():
-            return torch.cat([random.choice(data) for _ in range(batch_size)], dim=0)
+            return torch.stack([random.choice(data) for _ in range(batch_size)], dim=0)
         opt = torch.optim.Adam(self._adv_prameters(), lr=0.001)
         for epoch in tqdm(range(epoche)):
             opt.zero_grad()
@@ -218,7 +205,6 @@ class ADVDetectModel(DetectionModel):
                 bloss += self.batchloss(dis_t)
             bloss.backward()
             opt.step()
-            
 
         for param in self.parameters():
             param.requires_grad = True

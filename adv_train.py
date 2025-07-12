@@ -38,13 +38,38 @@ def parse_args():
     args = parser.parse_args()
     if os.path.exists(args.hyp):
         hyp = yaml.load(open(args.hyp), Loader=yaml.FullLoader)
+        hyp = hyp_filter(hyp)
         for k, v in hyp.items():
-            setattr(args, k, v)
+            if not hasattr(args, k):
+                setattr(args, k, v)
         args.hyp = hyp
     
     from models.adv_detect import ADVDetectModel
     ADVDetectModel.MAX_ADV_TRAIN_EPOCH = args.max_adv_epoches
     return args
+
+def hyp_filter(hyp:dict):
+    Identifiable = ["data", "imgsz", "batch", "save_json",
+                    "conf", "iou", "max_det", "half", 
+                    "device", "dnn", "plots", "classes", 
+                    "rect", "split", "project", "name", 
+                    "verbose", "save_txt", "save_conf", 
+                    "workers", "augment", "agnostic_nms", 
+                    "single_cls",
+                    "hsv_h", "hsv_s", "hsv_v",
+                    "degrees", "translate", "scale",
+                    "shear", "perspective", "flipud",
+                    "fliplr", "bgr", "mosaic", "mixup",
+                    "cutmix", "copy_paste",
+                    "copy_paste_mode", "auto_augment",
+                    "erasing"]
+    filted = {}
+    for k, v in hyp.items():
+        for i in Identifiable:
+            if i in k:
+                filted[i] = v
+    return filted
+
 
 def print_args(args):
     """Print and save options
@@ -62,7 +87,7 @@ def print_args(args):
 if __name__ == '__main__':
     args = parse_args()
     print_args(args)
-
+    
     model_url = Path(args.model) if os.path.exists(args.model) else args.model
     model = YOLO(model_url)
 
@@ -73,7 +98,7 @@ if __name__ == '__main__':
         epochs=args.epochs,
         imgsz=args.imgsz,
         device=args.device,
-        lr0=args.lr0,
         workers=args.workers,
+        **args.hyp,
     )
 

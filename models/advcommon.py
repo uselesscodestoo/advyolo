@@ -106,20 +106,3 @@ class SpatialAttentionModule(nn.Module):
         out = torch.cat([avgout, maxout], dim=1)
         out = self.sigmoid(self.conv2d(out)) * out
         return out
-
-
-class CBAM(nn.Module):
-    def __init__(self, c1):
-        super(CBAM, self).__init__()
-        self.channel_attention = ChannelAttentionModule(c1)
-        self.spatial_attention = SpatialAttentionModule()
-
-    def forward(self, x):
-        out = self.channel_attention(x) * x
-        obj_map = self.spatial_attention(out)
-        B, C, H, W = out.shape
-        obj_map = obj_map.view(B, 1, 2, H, W)
-        out = out.view(B, C, 1, H, W)
-        out = obj_map * out
-        out = out.view(B, C*2, H, W)
-        return x, torch.squeeze(obj_map, dim=1), out
