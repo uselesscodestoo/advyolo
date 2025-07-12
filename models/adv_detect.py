@@ -76,8 +76,8 @@ class ADVDetectModel(DetectionModel):
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
-            if self.epochs < ADVDetectModel.MAX_ADV_TRAIN_EPOCHS and m.i == len(self.model) - 1:
-                x = [xx.detach() for xx in x]
+            # if self.epochs < ADVDetectModel.MAX_ADV_TRAIN_EPOCHS and m.i == len(self.model) - 1:
+            #     x = [xx.detach() for xx in x]
             if profile:
                 self._profile_one_layer(m, x, dt)
             x = m(x)  # run
@@ -178,7 +178,7 @@ class ADVDetectModel(DetectionModel):
             attn_loss, attn_loss_items = self.attloss(attn_s, batch)
             attn_losses += attn_loss
         
-        loss = troditional_loss.sum() + domain_losses + attn_losses
+        loss = troditional_loss.sum() * 4.0 + domain_losses + attn_losses
         return loss, item_loss
 
     def on_new_epoch(self):
@@ -220,7 +220,7 @@ class ADVDetectModel(DetectionModel):
                 dis_t = self.discriminators[i](attn_t)
                 dis_s = self.discriminators[i](attn_s)
                 bloss += self.batchloss(dis_t)
-                dloss += - self.domloss(dis_s, dis_t)[0]
+                dloss += - self.domloss(dis_s, dis_t)[0] * 1.5
             bloss.backward(retain_graph=True)
             dloss.backward(retain_graph=False)
             opt.step()
