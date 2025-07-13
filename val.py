@@ -11,10 +11,10 @@ RANK = int(os.getenv("RANK", -1))
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=str, default=ROOT / "yolov11/data/NW2DI.yaml", help="dataset.yaml path")
-    parser.add_argument("--weights", nargs="+", type=str, default=ROOT / "runs/detect/train7/weights/best.pt", help="model path(s)")
+    parser.add_argument("--model", type=str, default=ROOT / "runs/detect/train7/weights/best.pt", help="model path(s)")
     parser.add_argument("--batch-size", type=int, default=16, help="batch size")
     parser.add_argument("--imgsz", "--img", "--img-size", type=int, default=640, help="inference size (pixels)")
-    parser.add_argument("--conf-thres", type=float, default=0.1, help="confidence threshold")
+    parser.add_argument("--conf-thres", type=float, default=0.25, help="confidence threshold")
     parser.add_argument("--iou-thres", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument("--max-det", type=int, default=300, help="maximum detections per image")
     parser.add_argument("--task", default="val", help="train, val, test, speed or study")
@@ -25,7 +25,6 @@ def parse_args():
     parser.add_argument("--verbose", action="store_true", help="report mAP by class")
     parser.add_argument("--save-txt", action="store_true", help="save results to *.txt")
     parser.add_argument("--save-hybrid", action="store_true", help="save label+prediction hybrid results to *.txt")
-    parser.add_argument("--save-conf", action="store_true", help="save confidences in --save-txt labels")
     parser.add_argument("--save-json", action="store_true", help="save a COCO-JSON results file")
     parser.add_argument("--project", default=ROOT / "runs/val", help="save to project/name")
     parser.add_argument("--name", default="exp", help="save to project/name")
@@ -65,7 +64,13 @@ def parse_args():
 # single_cls	bool	False	Treats all classes as a single class during validation. Useful for evaluating model performance on binary detection tasks or when class distinctions aren't important.
 
 def val_args_filter(opt: dict):
-    Identifiable = ["data", "imgsz", "batch", "save_json", "conf", "iou", "max_det", "half", "device", "dnn", "plots", "classes", "rect", "split", "project", "name", "verbose", "save_txt", "save_conf", "workers", "augment", "agnostic_nms", "single_cls"]
+    Identifiable = ["data", "imgsz", "batch", "save_json",
+                    "conf", "iou", "max_det", "half", 
+                    "device", "dnn", "plots", "classes", 
+                    "rect", "split", "project", "name", 
+                    "verbose", "save_txt", "save_conf", 
+                    "workers", "augment", "agnostic_nms", 
+                    "single_cls"]
     filted = {}
     for k, v in opt.items():
         for i in Identifiable:
@@ -76,5 +81,6 @@ def val_args_filter(opt: dict):
 if __name__ == "__main__":
     opt = parse_args()
     args = val_args_filter(vars(opt))
-    model = YOLO(Path(opt.weights))
+    model = YOLO(Path(opt.model))
+    print_args(args)
     results = model.val(**args)
