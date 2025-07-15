@@ -13,7 +13,7 @@ def parse_args():
     parser.add_argument('--device', type=str, default='cuda', help='Training device')
     parser.add_argument('--lr0', type=float, default=0.001, help='Initial learning rate')
     parser.add_argument('--workers', type=int, default=8, help='Number of workers')
-    parser.add_argument('--conf', type=float, default=0.1, help='Confidence threshold')
+    parser.add_argument('--conf', type=float, default=0.25, help='Confidence threshold')
     parser.add_argument('--iou', type=float, default=0.45, help='IoU threshold')
     return parser.parse_args()
 
