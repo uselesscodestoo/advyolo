@@ -1,4 +1,6 @@
+from models.v13net import parse_model
 from ultralytics import YOLO
+import ultralytics.nn.tasks
 import os
 from pathlib import Path
 import argparse
@@ -6,7 +8,7 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser(description='Train YOLOv11 model')
     parser.add_argument('--data', type=str, default='./yolov11/data/NW2DI.yaml', help='Path to dataset config file')
-    parser.add_argument('--model', type=str, default='./yolov11/models/yolo11s.yaml', help='Path to model config file')
+    parser.add_argument('--model', type=str, default='./yolov11/models/yolov13s.yaml', help='Path to model config file')
     parser.add_argument('--batch', type=int, default=8, help='Batch size')
     parser.add_argument('--epochs', type=int, default=150, help='Number of epochs')
     parser.add_argument('--imgsz', type=int, default=640, help='Input image size')
@@ -33,7 +35,8 @@ def print_args(args):
 if __name__ == '__main__':
     args = parse_args()
     print_args(args)
-
+    
+    ultralytics.nn.tasks.parse_model = parse_model
     model_url = Path(args.model) if os.path.exists(args.model) else args.model
     model = YOLO(model_url)
 
